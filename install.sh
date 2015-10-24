@@ -35,15 +35,10 @@ exists=`grep -r "$ENV_VARIABLE" /etc/profile*`
 # Root check
 function check_uid {
   if [ "$EUID" -ne 0 ]; then
-    echo "This must be run as root. usage sudo $0"
-    echo "Switching to root enter password if asked"
-    sudo su -c "$0 $*"
-    exit
+    echo "This must be run as root. Please re-run as 'sudo $0'"
   fi
   return 0
 }
-
-check_uid
 
 function log_on_error {
   # basic error reporting
@@ -53,6 +48,8 @@ function log_on_error {
     exit 1
   fi
 }
+
+check_uid
 
 # Defaults to install where install.sh is located
 mkdir -p $BUILD_DIR
