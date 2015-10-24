@@ -11,3 +11,5 @@ install.log
 
 # Ignore Other Dev Files
 sftp-config.json
+
+.venv/
