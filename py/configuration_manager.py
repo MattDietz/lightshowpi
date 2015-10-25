@@ -86,7 +86,8 @@ def hardware():
             logging.error("devices not defined or not in JSON format."
                           + str(error))
 
-        _HARDWARE_CONFIG["devices"] = devices
+        _HARDWARE_CONFIG["devices"] = {d.lower(): v
+                                       for d,v in devices.iteritems()}
 
     return _HARDWARE_CONFIG
 

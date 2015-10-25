@@ -27,7 +27,7 @@ PYTHON_REQUIREMENTS_PATH=requirements.txt
 DECODER_PATH=http://www.brailleweb.com/downloads
 DECODER_PACKAGE=decoder-1.5XB-Unix.zip
 DECODER_LOCAL_PATH=decoder-1.5XB-Unix
-DECODER_FILES=decoder.py codecs.pdc fileinfo.py
+DECODER_FILES=(decoder.py codecs.pdc fileinfo.py)
 
 ENV_VARIABLE="SYNCHRONIZED_LIGHTS_HOME=${INSTALL_DIR}"
 exists=`grep -r "$ENV_VARIABLE" /etc/profile*`
@@ -36,15 +36,16 @@ exists=`grep -r "$ENV_VARIABLE" /etc/profile*`
 function check_uid {
   if [ "$EUID" -ne 0 ]; then
     echo "This must be run as root. Please re-run as 'sudo $0'"
+    exit 1
   fi
   return 0
 }
 
 function log_on_error {
   # basic error reporting
-  if [ $? -ne 0 ]; then
+  if [ $2 -ne 0 ]; then
     echo "Houston we have a problem....."
-    echo "$1 failed with exit code $?"
+    echo "$1 failed with exit code $2"
     exit 1
   fi
 }
@@ -52,6 +53,11 @@ function log_on_error {
 check_uid
 
 # Defaults to install where install.sh is located
+pushd .
+if [ -f $BUILD_DIR ]; then
+  rm -rf $BUILD_DIR
+fi
+
 mkdir -p $BUILD_DIR
 cd $BUILD_DIR
 
@@ -59,7 +65,8 @@ cd $BUILD_DIR
 apt-get update
 
 # Doesn't hurt to try to install things even if some are already installed
-apt-get install git python-setuptools python-pip python-dev build-essential
+apt-get install -y git python-setuptools python-pip python-dev build-essential mercurial
+pip install python-setuptools --upgrade
 
 # install decoder
 # http://www.brailleweb.com
@@ -72,16 +79,17 @@ cd $DECODER_LOCAL_PATH
 cp ${DECODER_FILES[*]} $PYTHON_PATH
 
 # Install python packages from pypi
+popd
 pip install -r $PYTHON_REQUIREMENTS_PATH
-log_on_error "Installing required python packages..."
+log_on_error "Installing required python packages..." $?
 
 # install python-alsaaudio
 apt-get install -y python-alsaaudio
-log_on_error "Installing python-alsaaudio"
+log_on_error "Installing python-alsaaudio" $?
 
 # install audio encoders
 apt-get install -y lame flac faad vorbis-tools
-log_on_error "Installing audio-encoders"
+log_on_error "Installing audio-encoders" $?
 
 # install audio encoder ffmpeg (wheezy) or libav-tools (Jessie or OSMC)
 version=$(cat /etc/*-release | grep 'VERSION_ID' | awk -F \" '{print $2}')
@@ -98,11 +106,11 @@ else
   echo "creating symlink to avconv"
   ln -s /usr/bin/avconv /usr/bin/ffmpeg
 fi
-log_on_error "Installing $AUDIO_DECODER"
+log_on_error "Installing $AUDIO_DECODER" $?
 
 # install mpg123
 apt-get install -y mpg123
-log_on_error "Installing mpg123"
+log_on_error "Installing mpg123" $?
 
 # Setup environment variables
 
