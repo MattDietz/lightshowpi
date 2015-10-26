@@ -329,7 +329,9 @@ def initialize():
             is_pin_pwm[pin] = False
         wiringpi.wiringPiSetupSys()
     else:
-        wiringpi.wiringPiSetup()
+        # TODO(mdietz): Configrable pin mode or GPIO mode
+        #wiringpi.wiringPiSetup()
+        wiringpi.wiringPiSetupGpio()
         enable_device()
 
     set_all_pins_as_outputs()

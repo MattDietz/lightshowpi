@@ -107,9 +107,9 @@ class PrePostShow(object):
                     start = time.time()
 
                     if transition['type'].lower() == 'on':
-                        self.hc.turn_on_lights(True)
+                        self.hc.turn_on_all_lights(True)
                     else:
-                        self.hc.turn_off_lights(True)
+                        self.hc.turn_off_all_lights(True)
 
                     logging.debug('Transition to ' + transition['type'] + ' for '
                                   + str(transition['duration']) + ' seconds')
