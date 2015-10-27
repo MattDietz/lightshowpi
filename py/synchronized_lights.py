@@ -422,7 +422,7 @@ def stream_music(play_now):
     music_file.close()
 
 
-def fetch_frequency_matrix(fft_calc, row, data):
+def calc_frequency_matrix(fft_calc, row, data, cache_matrix):
     # Control lights with cached timing values if they exist
     matrix = None
 
@@ -443,7 +443,7 @@ def fetch_frequency_matrix(fft_calc, row, data):
         # TODO(mdietz): fix the cache
         # Add the matrix to the end of the cache 
         cache_matrix = np.vstack([cache_matrix, matrix])
-    return cache_matrix
+    return matrix
 
 
 def load_cached_fft():
@@ -542,7 +542,7 @@ def play_song():
                     break
 
                 output_stream(data)
-                matrix = fetch_frequency_matrix(fft_calc, row, data)
+                matrix = calc_frequency_matrix(fft_calc, row, data, cache_matrix)
                 update_lights(matrix, mean, std)
 
                 # Read next chunk of data from music
