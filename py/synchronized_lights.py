@@ -115,6 +115,8 @@ if _usefm:
     play_stereo = True
     music_pipe_r, music_pipe_w = os.pipe()
 
+# TODO(mdietz): Changing this would necessitate rebuilding the cache. Not sure
+#               the code knows that
 CHUNK_SIZE = 2048  # Use a multiple of 8 (move this to config)
 
 
@@ -354,6 +356,10 @@ def get_output_proc(frequency, num_channels, sample_rate):
             # play_stereo is always True as coded, Should it be changed to
             # an option in the config file?
             # TODO(mdietz): pifm binary needs to be modular
+            # TODO(mdietz): this is also a renamed PiFmRds, not the
+            #               original pifm
+            # TODO(mdietz): also it should be run from an installed path,
+            #               not fixed to bin/
             a = ["sudo", cm.HOME_DIR + "/bin/pifm", "-audio", "-",
                  "-freq", str(frequency)]
             fm_process = subprocess.Popen(a,
@@ -393,8 +399,11 @@ def stream_music(play_now):
     else:
         music_file = decoder.open(song_filename)
 
+    # TODO(mdietz): Looks like we cache the FFT but not song meta
+    #               which is silly
     sample_rate = music_file.getframerate()
     num_channels = music_file.getnchannels()
+
     fft_calc = fft.FFT(CHUNK_SIZE,
                        sample_rate,
                        hc.GPIOLEN,
@@ -491,6 +500,32 @@ def init_fft_cache(song_filename):
     return cache_matrix, cache_found
 
 
+def cache_song(song_filename):
+    music_file = wave.open(song_filename, 'r')
+    sample_rate = music_file.getframerate()
+    num_channels = music_file.getnchannels()
+
+    fft_calc = fft.FFT(CHUNK_SIZE,
+                       sample_rate,
+                       hc.GPIOLEN,
+                       _MIN_FREQUENCY,
+                       _MAX_FREQUENCY,
+                       _CUSTOM_CHANNEL_MAPPING,
+                       _CUSTOM_CHANNEL_FREQUENCIES)
+
+    song_length  = str(music_file.getnframes() / sample_rate)
+    mean = [12.0 for _ in xrange(hc.GPIOLEN)]
+    std = [1.5 for _ in xrange(hc.GPIOLEN)]
+    while True:
+        # Frames seem to be 16 bit, chunk size of 2048 gives us a byte
+        # array 4096 in length
+        data = music_file.readframes(CHUNK_SIZE / 2)
+        if not data:
+            break
+        matrix = calc_frequency_matrix(fft_calc, row, data, cache_matrix)
+
+
+
 def play_song():
     """Play the next song from the play list (or --file argument)."""
     play_now = int(cm.get_state('play_now', "0"))
@@ -503,6 +538,11 @@ def play_song():
     # Initialize Lights
     hc.initialize()
 
+    # TODO(mdietz): One way of pre-caching the song is to spawn a 
+    #               thread here and don't kill the pre-show
+    #               until the process finishes. Double benefit
+    #               of removing all the caching nonsense in the
+    #               other methods
     # Handle the pre/post show
     if not play_now:
         result = PrePostShow('preshow', hc).execute()
@@ -549,8 +589,10 @@ def play_song():
                 row += 1
 
                 # Load new application state in case we've been interrupted
-                cm.load_state()
-                play_now = int(cm.get_state('play_now', "0"))
+                # TODO(mdietz): not the way to do this. Read from a db,
+                #               accept a signal or some other OOB proc
+                # cm.load_state()
+                # play_now = int(cm.get_state('play_now', "0"))
 
             cache_matrix = compute_matrix(mean, std, cache_matrix, fft_calc,
                                           cache_found)
