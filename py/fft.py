@@ -274,13 +274,15 @@ class FFT(object):
         self.config.set('fft', 'max_frequency', str(self.max_frequency))
 
         if isinstance(self.custom_channel_mapping, list):
-            self.config.set('fft', 'custom_channel_mapping', str(self.custom_channel_mapping)[1:-1])
+            self.config.set('fft', 'custom_channel_mapping',
+                            str(self.custom_channel_mapping)[1:-1])
         else:
-            self.config.set('fft', 'custom_channel_mapping', str(self.custom_channel_mapping))
+            self.config.set('fft', 'custom_channel_mapping',
+                            str(self.custom_channel_mapping))
 
         if isinstance(self.custom_channel_frequencies, list):
             self.config.set('fft', 'custom_channel_frequencies',
-                            str(self.custom_channel_frequencies)[1:-1])
+                            str(self.custom_channel_frequencies)[2:-1])
         else:
             self.config.set('fft', 'custom_channel_frequencies',
                             str(self.custom_channel_frequencies))

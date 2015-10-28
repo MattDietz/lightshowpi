@@ -21,15 +21,15 @@ The timing of the lights turning on and off is based upon the frequency
 response of the music being played.  A short segment of the music is
 analyzed via FFT to get the frequency response across each defined
 channel in the audio range.  Each light channel is then faded in and
-out based upon the amplitude of the frequency response in the 
-corresponding audio channel.  Fading is accomplished with a software 
+out based upon the amplitude of the frequency response in the
+corresponding audio channel.  Fading is accomplished with a software
 PWM output.  Each channel can also be configured to simply turn on and
-off as the frequency response in the corresponding channel crosses a 
+off as the frequency response in the corresponding channel crosses a
 threshold.
 
 FFT calculation can be CPU intensive and in some cases can adversely
 affect playback of songs (especially if attempting to decode the song
-as well, as is the case for an mp3).  For this reason, the FFT 
+as well, as is the case for an mp3).  For this reason, the FFT
 cacluations are cached after the first time a new song is played.
 The values are cached in a gzip'd text file in the same location as the
 song itself.  Subsequent requests to play the same song will use the
@@ -38,7 +38,7 @@ utilization dramatically and allowing for clear music playback of all
 audio file types.
 
 Recent optimizations have improved this dramatically and most users are
-no longer reporting adverse playback of songs even on the first 
+no longer reporting adverse playback of songs even on the first
 playback.
 
 Sample usage:
@@ -50,13 +50,13 @@ sudo python synchronized_lights.py --file=/home/pi/music/jingle_bells.mp3
 
 Third party dependencies:
 
-alsaaudio: for audio input/output 
+alsaaudio: for audio input/output
     http://pyalsaaudio.sourceforge.net/
 
-decoder.py: decoding mp3, ogg, wma, ... 
+decoder.py: decoding mp3, ogg, wma, ...
     https://pypi.python.org/pypi/decoder.py/1.5XB
 
-numpy: for FFT calcuation 
+numpy: for FFT calcuation
     http://www.numpy.org/
 """
 
@@ -317,32 +317,6 @@ def get_song(play_now, song_to_play):
     return song_filename
 
 
-# TODO(mdietz): make cache_found do something. Thinking this might be a
-#               class candidate too
-def compute_matrix(mean, std, cache_matrix, fft_calc, cache_found=False):
-    if not cache_found:
-        # Compute the standard deviation and mean values for the cache
-        for i in range(0, hc.GPIOLEN):
-            std[i] = np.std([item for item in cache_matrix[:, i] if item > 0])
-            mean[i] = np.mean([item for item in cache_matrix[:, i] if item > 0])
-
-        # Add mean and std to the top of the cache
-        cache_matrix = np.vstack([mean, cache_matrix])
-        cache_matrix = np.vstack([std, cache_matrix])
-
-        # Save the cache using numpy savetxt
-        np.savetxt(cache_filename, cache_matrix)
-
-        # Save fft config
-        fft_calc.save_config()
-
-        logging.info("Cached sync data written to '." + cache_filename
-                     + "' [" + str(len(cache_matrix)) + " rows]")
-
-        logging.info("Cached config data written to '." + fft_calc.config_filename)
-        return cache_matrix
-
-
 # TODO(mdietz): Looks like this should be a class so we can support
 #               both versions and cleanly give everyone the operators
 #               they need
@@ -388,12 +362,8 @@ def get_output_proc(frequency, num_channels, sample_rate):
 # TODO(mdietz): Looking like the music handle should be a class
 #               so we don't have to yield 4 things
 @contextlib.contextmanager
-def stream_music(play_now):
+def stream_music(song_filename, play_now):
     # Set up audio
-    song_to_play = int(cm.get_state('song_to_play', "0"))
-    song_filename = get_song(play_now, song_to_play)
-    song_filename = os.path.abspath(song_filename)
-
     if song_filename.endswith('.wav'):
         music_file = wave.open(song_filename, 'r')
     else:
@@ -427,32 +397,8 @@ def stream_music(play_now):
             yield data
 
     # TODO(mdietz): not really a fan of this interface
-    yield num_channels, sample_rate, song_filename, fft_calc, next_chunk
+    yield num_channels, sample_rate, fft_calc, next_chunk
     music_file.close()
-
-
-def calc_frequency_matrix(fft_calc, row, data, cache_matrix):
-    # Control lights with cached timing values if they exist
-    matrix = None
-
-    # TODO(mdietz): Make this less stupid, we should check cache once and
-    #               either have all of it or have none of it.
-    #if cache_found and args.readcache:
-    #    if row < len(cache_matrix):
-    #        matrix = cache_matrix[row]
-    #    else:
-    #        logging.warning("Ran out of cached FFT values, will update "
-    #                        "the cache.")
-    #        cache_found = False
-
-    if matrix is None:
-        # No cache - Compute FFT in this chunk, and cache results
-        matrix = fft_calc.calculate_levels(data)
-
-        # TODO(mdietz): fix the cache
-        # Add the matrix to the end of the cache 
-        cache_matrix = np.vstack([cache_matrix, matrix])
-    return matrix
 
 
 def load_cached_fft():
@@ -492,16 +438,11 @@ def load_cached_fft():
 # TODO(mdietz): Support a one pass cache all, too
 # TODO(mdietz): Skip all caching for now, refactor this later
 # create empty array for the cache_matrix
-def init_fft_cache(song_filename):
-    cache_matrix = np.empty(shape=[0, hc.GPIOLEN])
-    cache_found = False
-    cache_filename = os.path.dirname(song_filename) + "/." + os.path.basename(
-        song_filename) + ".sync"
-    return cache_matrix, cache_found
-
-
 def cache_song(song_filename):
-    music_file = wave.open(song_filename, 'r')
+    if song_filename.endswith('.wav'):
+        music_file = wave.open(song_filename, 'r')
+    else:
+        music_file = decoder.open(song_filename)
     sample_rate = music_file.getframerate()
     num_channels = music_file.getnchannels()
 
@@ -514,6 +455,15 @@ def cache_song(song_filename):
                        _CUSTOM_CHANNEL_FREQUENCIES)
 
     song_length  = str(music_file.getnframes() / sample_rate)
+
+    # Init cache matrix
+    cache_matrix = np.empty(shape=[0, hc.GPIOLEN])
+    cache_filename = os.path.dirname(song_filename) + "/." + os.path.basename(
+        song_filename) + ".sync"
+
+    # The values 12 and 1.5 are good estimates for first time playing back
+    # (i.e. before we have the actual mean and standard deviations
+    # calculated for each channel).
     mean = [12.0 for _ in xrange(hc.GPIOLEN)]
     std = [1.5 for _ in xrange(hc.GPIOLEN)]
     while True:
@@ -522,8 +472,36 @@ def cache_song(song_filename):
         data = music_file.readframes(CHUNK_SIZE / 2)
         if not data:
             break
-        matrix = calc_frequency_matrix(fft_calc, row, data, cache_matrix)
 
+        matrix = fft_calc.calculate_levels(data)
+        # Add the matrix to the end of the cache
+        cache_matrix = np.vstack([cache_matrix, matrix])
+
+    for i in range(0, hc.GPIOLEN):
+        std[i] = np.std([item for item in cache_matrix[:, i] if item > 0])
+        mean[i] = np.mean([item for item in cache_matrix[:, i] if item > 0])
+
+    # Add mean and std to the top of the cache
+    cache_matrix = np.vstack([mean, cache_matrix])
+    cache_matrix = np.vstack([std, cache_matrix])
+
+    # Save the cache using numpy savetxt
+    np.savetxt(cache_filename, cache_matrix)
+
+    # Save fft config
+    fft_calc.save_config()
+
+    logging.info("Cached sync data written to '." + cache_filename
+                 + "' [" + str(len(cache_matrix)) + " rows]")
+
+    logging.info("Cached config data written to '." + fft_calc.config_filename)
+
+
+def get_next_song_path():
+    song_to_play = int(cm.get_state('song_to_play', "0"))
+    song_filename = get_song(play_now, song_to_play)
+    song_filename = os.path.abspath(song_filename)
+    return song_filename
 
 
 def play_song():
@@ -538,11 +516,15 @@ def play_song():
     # Initialize Lights
     hc.initialize()
 
+    song_filename = get_next_song_path()
+
     # TODO(mdietz): One way of pre-caching the song is to spawn a 
     #               thread here and don't kill the pre-show
     #               until the process finishes. Double benefit
     #               of removing all the caching nonsense in the
     #               other methods
+    cache_song(song_filename)
+
     # Handle the pre/post show
     if not play_now:
         result = PrePostShow('preshow', hc).execute()
@@ -550,22 +532,24 @@ def play_song():
         if result == PrePostShow.play_now_interrupt:
             play_now = int(cm.get_state('play_now', "0"))
 
-
+    # TODO(mdietz): What the hell is this play_now variable really for?
     # Ensure play_now is reset before beginning playback
     if play_now:
         cm.update_state('play_now', "0")
         play_now = 0
 
-    # TODO(mdietz): What the hell is this play_now variable really for?
-    with stream_music(play_now) as (num_channels, sample_rate, song_filename,
-                                    fft_calc, next_chunk):
+    with stream_music(play_now) as (num_channels, sample_rate, fft_calc,
+                                    next_chunk):
+
         # TODO(mdietz): Can we keep pi_fm_rds running and use the control pipe
         #               to set up each song? Could we have a "raw" input mode
         #               in pi_fm_rds? What about sending the RDS strings?
+        # NOTE(mdietz): Not without heavy modification, it uses libsndfile to load
+        #               the file that we stream to it, but it expects to consume
+        #               the headers from the file chosen
         with get_output_proc(frequency,
                              num_channels,
                              sample_rate) as (output_stream, output_cleanup):
-            cache_matrix, cache_found = init_fft_cache(song_filename) 
 
             # The values 12 and 1.5 are good estimates for first time playing
             # back (i.e. before we have the actual mean and standard
@@ -573,7 +557,7 @@ def play_song():
             mean = [12.0 for _ in xrange(hc.GPIOLEN)]
             std = [1.5 for _ in xrange(hc.GPIOLEN)]
 
-            load_cached_fft() 
+            load_cached_fft()
 
             # Process audio
             row = 0
@@ -593,9 +577,6 @@ def play_song():
                 #               accept a signal or some other OOB proc
                 # cm.load_state()
                 # play_now = int(cm.get_state('play_now', "0"))
-
-            cache_matrix = compute_matrix(mean, std, cache_matrix, fft_calc,
-                                          cache_found)
 
             # Cleanup the fm process if there is one
             output_cleanup()
