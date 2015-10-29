@@ -205,10 +205,11 @@ class FFT(object):
         Compare the current configuration used to generate fft to a saved
         copy of the data that was used to generate the fft data for an
         existing cache file
-        
+
         :param cache_filename: path and name of cache file
         :type cache_filename: str
         """
+        # TODO(mdietz): Setting this here is so dumb
         self.config_filename = cache_filename.replace(".sync", ".cfg")
 
         if not os.path.isfile(self.config_filename):
