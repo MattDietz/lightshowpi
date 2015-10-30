@@ -73,6 +73,8 @@ import os
 import random
 import subprocess
 import sys
+import threading
+import time
 import wave
 import alsaaudio as aa
 
@@ -324,9 +326,11 @@ def get_song(play_now, song_to_play):
 @contextlib.contextmanager
 def get_output_proc(frequency, num_channels, sample_rate):
     if _usefm:
-        logging.info("Sending output as fm transmission")
+        logging.info("Sending output as fm transmission on %s" % frequency)
         output = None
+
         output_stream = functools.partial(os.write, music_pipe_w)
+
         with open(os.devnull, "w") as dev_null:
             # play_stereo is always True as coded, Should it be changed to
             # an option in the config file?
@@ -339,7 +343,8 @@ def get_output_proc(frequency, num_channels, sample_rate):
                  "-freq", str(frequency)]
             fm_process = subprocess.Popen(a,
                                           stdin=music_pipe_r,
-                                          stdout=dev_null)
+                                          stdout=dev_null,
+                                          bufsize=8192)
         # TODO(mdietz): really? Kill?
         def output_cleanup():
             fm_process.kill()
@@ -360,6 +365,9 @@ def get_output_proc(frequency, num_channels, sample_rate):
         output_cleanup()
 
 
+# TODO(mdietz): This pre-caching is fine but we should still be able to do a
+#               live mode with a mic or the audio-in port. I'll need to fork
+#               PiFmRds and have it take raw input
 # TODO(mdietz): Looking like the music handle should be a class
 #               so we don't have to yield 4 things
 @contextlib.contextmanager
@@ -374,25 +382,23 @@ def stream_music(song_filename, play_now):
     #               which is silly
     sample_rate = music_file.getframerate()
     num_channels = music_file.getnchannels()
+    sample_width = music_file.getsampwidth()
 
-    fft_calc = fft.FFT(CHUNK_SIZE,
-                       sample_rate,
-                       hc.GPIOLEN,
-                       _MIN_FREQUENCY,
-                       _MAX_FREQUENCY,
-                       _CUSTOM_CHANNEL_MAPPING,
-                       _CUSTOM_CHANNEL_FREQUENCIES)
+    chunk_size = CHUNK_SIZE * num_channels * sample_width
+    chunk_period = float(CHUNK_SIZE) / float(sample_rate)
+    print chunk_period
+    
     song_length = str(music_file.getnframes() / sample_rate)
     logging.info("Playing: %s (%s) sec" % (song_filename, song_length))
 
-    # TODO(mdietz): Presumably there's a way to read this RAW?
     music_file.close()
     music_file = open(song_filename, 'rb')
 
     # TODO(mdietz): generalize: raw versus specific encoding
+    one_second_rate = num_channels * sample_width * sample_rate
     def next_chunk():
         while True:
-            data = music_file.read(CHUNK_SIZE)
+            data = music_file.read(chunk_size)
             if not data:
                 break
             yield data
@@ -445,10 +451,11 @@ def cache_song(song_filename):
         music_file = decoder.open(song_filename)
     sample_rate = music_file.getframerate()
     num_channels = music_file.getnchannels()
+    logging.info("Sample rate: %s" % sample_rate)
+    logging.info("Channels: %s" % num_channels)
+    logging.info("Frame size: %s" % music_file.getsampwidth())
 
-    # Frames seem to be 16 bit, chunk size of 2048 gives us a byte
-    # array 4096 in length
-    fft_calc = fft.FFT(CHUNK_SIZE / 2,
+    fft_calc = fft.FFT(CHUNK_SIZE,
                        sample_rate,
                        hc.GPIOLEN,
                        _MIN_FREQUENCY,
@@ -456,7 +463,7 @@ def cache_song(song_filename):
                        _CUSTOM_CHANNEL_MAPPING,
                        _CUSTOM_CHANNEL_FREQUENCIES)
 
-    song_length  = str(music_file.getnframes() / sample_rate)
+    song_length = str(music_file.getnframes() / sample_rate)
 
     # Init cache matrix
     cache_matrix = np.empty(shape=[0, hc.GPIOLEN])
@@ -472,16 +479,17 @@ def cache_song(song_filename):
         # calculated for each channel).
         mean = [12.0 for _ in xrange(hc.GPIOLEN)]
         std = [1.5 for _ in xrange(hc.GPIOLEN)]
+        total = 0
         while True:
-            # Frames seem to be 16 bit, chunk size of 2048 gives us a byte
-            # array 4096 in length
-            data = music_file.readframes(CHUNK_SIZE / 2)
+            data = music_file.readframes(CHUNK_SIZE)
             if not data:
                 break
+            total += len(data)
 
             matrix = fft_calc.calculate_levels(data)
             # Add the matrix to the end of the cache
             cache_matrix = np.vstack([cache_matrix, matrix])
+        print "Bytes read from WAV:",total
 
         for i in range(0, hc.GPIOLEN):
             std[i] = np.std([item for item in cache_matrix[:, i]
@@ -529,12 +537,8 @@ def play_song():
 
     song_filename = get_next_song_path(play_now)
 
-    # TODO(mdietz): One way of pre-caching the song is to spawn a 
-    #               thread here and don't kill the pre-show
-    #               until the process finishes. Double benefit
-    #               of removing all the caching nonsense in the
-    #               other methods
-    pool = multiprocessing.pool.ThreadPool(processes=1)
+    # Fork and warm the cache. Technically race prone but meh
+    pool = multiprocessing.pool.Pool(processes=1)
     cache_proc = pool.apply_async(cache_song, [song_filename])
 
     # Handle the pre/post show
@@ -550,7 +554,7 @@ def play_song():
         cm.update_state('play_now', "0")
         play_now = 0
 
-    # Wait for the cache thread
+    # Wait for the cache
     cache_proc.wait()
     mean, std, cache_matrix = cache_proc.get()
 
@@ -568,22 +572,33 @@ def play_song():
 
             # Process audio
             row = 0
+            start_time = time.time()
             for data in next_chunk():
                 if play_now:
                     break
 
                 output_stream(data)
-                matrix = cache_matrix[row]
-                update_lights(matrix, mean, std)
+                # TODO(mdietz): This actually pretty much works, but it would
+                #               be nice to figure out what the actual delay
+                #               time is
+                if time.time() - start_time < 0.65:
+                    continue
 
-                # Read next chunk of data from music
+                try:
+                    matrix = cache_matrix[row]
+                    update_lights(matrix, mean, std)
+
+                    # Read next chunk of data from music
+
+                    # Load new application state in case we've been interrupted
+                    # TODO(mdietz): not the way to do this. Read from a db,
+                    #               accept a signal or some other OOB proc
+                    cm.load_state()
+                    play_now = int(cm.get_state('play_now', "0"))
+                except Exception as e:
+                    pass
                 row += 1
-
-                # Load new application state in case we've been interrupted
-                # TODO(mdietz): not the way to do this. Read from a db,
-                #               accept a signal or some other OOB proc
-                # cm.load_state()
-                # play_now = int(cm.get_state('play_now', "0"))
+            print "Last row:",row
 
             # Cleanup the fm process if there is one
             output_cleanup()
