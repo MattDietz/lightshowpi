@@ -316,15 +316,16 @@ def get_song(play_now, song_to_play):
         song_filename = current_song[1]
         cm.update_state('current_song', str(songs.index(current_song)))
 
+    song_title = song[0]
     song_filename = song_filename.replace("$SYNCHRONIZED_LIGHTS_HOME", cm.HOME_DIR)
-    return song_filename
+    return song_title, song_filename
 
 
 # TODO(mdietz): Looks like this should be a class so we can support
 #               both versions and cleanly give everyone the operators
 #               they need
 @contextlib.contextmanager
-def get_output_proc(frequency, num_channels, sample_rate):
+def get_output_proc(song_title, frequency, num_channels, sample_rate):
     if _usefm:
         logging.info("Sending output as fm transmission on %s" % frequency)
         output = None
@@ -332,19 +333,20 @@ def get_output_proc(frequency, num_channels, sample_rate):
         output_stream = functools.partial(os.write, music_pipe_w)
 
         with open(os.devnull, "w") as dev_null:
-            # play_stereo is always True as coded, Should it be changed to
-            # an option in the config file?
             # TODO(mdietz): pifm binary needs to be modular
             # TODO(mdietz): this is also a renamed PiFmRds, not the
             #               original pifm
             # TODO(mdietz): also it should be run from an installed path,
             #               not fixed to bin/
             a = ["sudo", cm.HOME_DIR + "/bin/pifm", "-audio", "-",
-                 "-freq", str(frequency)]
+                 "-freq", str(frequency), "-raw", "-samplerate",
+                 str(sample_rate), "-numchannels", str(num_channels),
+                 "-ps", "XMAS-PI", "-rt", song_title]
+            for v in a:
+                print v, type(v)
             fm_process = subprocess.Popen(a,
                                           stdin=music_pipe_r,
-                                          stdout=dev_null,
-                                          bufsize=8192)
+                                          stdout=dev_null)
         # TODO(mdietz): really? Kill?
         def output_cleanup():
             fm_process.kill()
@@ -378,27 +380,20 @@ def stream_music(song_filename, play_now):
     else:
         music_file = decoder.open(song_filename)
 
-    # TODO(mdietz): Looks like we cache the FFT but not song meta
-    #               which is silly
+    # TODO(mdietz): We can get this from the cache, too
     sample_rate = music_file.getframerate()
     num_channels = music_file.getnchannels()
     sample_width = music_file.getsampwidth()
 
-    chunk_size = CHUNK_SIZE * num_channels * sample_width
     chunk_period = float(CHUNK_SIZE) / float(sample_rate)
-    print chunk_period
+    logging.info("Chunk period: %d" % chunk_period)
     
     song_length = str(music_file.getnframes() / sample_rate)
     logging.info("Playing: %s (%s) sec" % (song_filename, song_length))
 
-    music_file.close()
-    music_file = open(song_filename, 'rb')
-
-    # TODO(mdietz): generalize: raw versus specific encoding
-    one_second_rate = num_channels * sample_width * sample_rate
     def next_chunk():
         while True:
-            data = music_file.read(chunk_size)
+            data = music_file.readframes(CHUNK_SIZE)
             if not data:
                 break
             yield data
@@ -489,7 +484,6 @@ def cache_song(song_filename):
             matrix = fft_calc.calculate_levels(data)
             # Add the matrix to the end of the cache
             cache_matrix = np.vstack([cache_matrix, matrix])
-        print "Bytes read from WAV:",total
 
         for i in range(0, hc.GPIOLEN):
             std[i] = np.std([item for item in cache_matrix[:, i]
@@ -518,9 +512,9 @@ def cache_song(song_filename):
 
 def get_next_song_path(play_now):
     song_to_play = int(cm.get_state('song_to_play', "0"))
-    song_filename = get_song(play_now, song_to_play)
+    song_title, song_filename = get_song(play_now, song_to_play)
     song_filename = os.path.abspath(song_filename)
-    return song_filename
+    return song_title, song_filename
 
 
 def play_song():
@@ -535,7 +529,7 @@ def play_song():
     # Initialize Lights
     hc.initialize()
 
-    song_filename = get_next_song_path(play_now)
+    song_title, song_filename = get_next_song_path(play_now)
 
     # Fork and warm the cache. Technically race prone but meh
     pool = multiprocessing.pool.Pool(processes=1)
@@ -560,13 +554,8 @@ def play_song():
 
     with stream_music(song_filename, play_now) as (num_channels, sample_rate,
                                                    next_chunk):
-        # TODO(mdietz): Can we keep pi_fm_rds running and use the control pipe
-        #               to set up each song? Could we have a "raw" input mode
-        #               in pi_fm_rds? What about sending the RDS strings?
-        # NOTE(mdietz): Not without heavy modification, it uses libsndfile to load
-        #               the file that we stream to it, but it expects to consume
-        #               the headers from the file chosen
-        with get_output_proc(frequency,
+        with get_output_proc(song_title,
+                             frequency,
                              num_channels,
                              sample_rate) as (output_stream, output_cleanup):
 
@@ -580,7 +569,7 @@ def play_song():
                 output_stream(data)
                 # TODO(mdietz): This actually pretty much works, but it would
                 #               be nice to figure out what the actual delay
-                #               time is
+                #               time is, and also make it a config value
                 if time.time() - start_time < 0.65:
                     continue
 
