@@ -1,0 +1,12 @@
+mutagen==1.19
+funcsigs==0.4
+glob2==0.4.1
+pbr==1.8.1
+six==1.10.0
+web.py==0.37
+numpy==1.10.1
+
+#TODO(mdietz): Pin this
+wiringpi2
+hg+https://code.google.com/r/kkleidal-pygooglevoiceupdate/
+BeautifulSoup==3.2.1

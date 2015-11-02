@@ -205,10 +205,11 @@ class FFT(object):
         Compare the current configuration used to generate fft to a saved
         copy of the data that was used to generate the fft data for an
         existing cache file
-        
+
         :param cache_filename: path and name of cache file
         :type cache_filename: str
         """
+        # TODO(mdietz): Setting this here is so dumb
         self.config_filename = cache_filename.replace(".sync", ".cfg")
 
         if not os.path.isfile(self.config_filename):
@@ -274,13 +275,15 @@ class FFT(object):
         self.config.set('fft', 'max_frequency', str(self.max_frequency))
 
         if isinstance(self.custom_channel_mapping, list):
-            self.config.set('fft', 'custom_channel_mapping', str(self.custom_channel_mapping)[1:-1])
+            self.config.set('fft', 'custom_channel_mapping',
+                            str(self.custom_channel_mapping)[1:-1])
         else:
-            self.config.set('fft', 'custom_channel_mapping', str(self.custom_channel_mapping))
+            self.config.set('fft', 'custom_channel_mapping',
+                            str(self.custom_channel_mapping))
 
         if isinstance(self.custom_channel_frequencies, list):
             self.config.set('fft', 'custom_channel_frequencies',
-                            str(self.custom_channel_frequencies)[1:-1])
+                            str(self.custom_channel_frequencies)[2:-1])
         else:
             self.config.set('fft', 'custom_channel_frequencies',
                             str(self.custom_channel_frequencies))

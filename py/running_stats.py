@@ -16,7 +16,7 @@ http://www.johndcook.com/blog/standard_deviation/
 
 Third party dependencies:
 
-numpy: for FFT calcuation 
+numpy: for FFT calcuation
     http://www.numpy.org/
 """
 import numpy
@@ -25,7 +25,7 @@ import numpy
 class Stats(object):
     def __init__(self, length):
         """Constructor
-        
+
         :param length: the length of the matrix
         :type length: int
         """
@@ -47,12 +47,12 @@ class Stats(object):
 
     def preload(self, mean, std, sample_count=2):
         """Add a starting samples to the running standard deviation and mean
-        
+
         This data does not need to be accurate.  It is only a base starting
-        point for our light show.  With out preloading some values the show 
+        point for our light show.  With out preloading some values the show
         will start with all lights on and then slowly change to what we want
-        to see.  
-        
+        to see.
+
         :param mean: new sample mean starting point
         :type mean: numpy array
         :param std: new sample standard deviation starting point
@@ -60,9 +60,10 @@ class Stats(object):
         :param sample_count: how many samples to start with (min 2)
         :type sample_count: int
         """
-        if len(mean) == self.length and len(
-                std) == self.length and sample_count > 1 and self.sample_count == 0:
-            # cast all arrays to numpy just to make sure the data type is correct
+        if (len(mean) == self.length and len(std) == self.length and
+            sample_count > 1 and self.sample_count == 0):
+            # cast all arrays to numpy just to make sure the data type
+            # is correct
             self.new_mean = numpy.array(mean, dtype='float64')
             self.new_std = numpy.array(std, dtype='float64')
             self.old_mean = numpy.array(mean, dtype='float64')
@@ -71,8 +72,8 @@ class Stats(object):
 
     def push(self, data):
         """Add a new sample to the running standard deviation and mean
-        
-        :param data: new sample data, this must be a numpy array 
+
+        :param data: new sample data, this must be a numpy array
         :type data: numpy array
         """
         # data should be numpy array the same length as self.length
@@ -86,8 +87,10 @@ class Stats(object):
             self.new_mean = data
             self.old_std = self.empty
         else:
-            self.new_mean = self.old_mean + (data - self.old_mean) / self.sample_count
-            self.new_std = self.old_std + (data - self.old_mean) * (data - self.new_mean)
+            self.new_mean = self.old_mean + ((data - self.old_mean) /
+                                              self.sample_count)
+            self.new_std = self.old_std + ((data - self.old_mean) *
+                                           (data - self.new_mean))
 
             # set up for next iteration
             self.old_mean = self.new_mean
@@ -95,7 +98,7 @@ class Stats(object):
 
     def num_data_values(self):
         """Get the current number of observations in the sample
-        
+
         :return: current samples observed
         :rtype: int
         """
@@ -103,15 +106,15 @@ class Stats(object):
 
     def mean(self):
         """Get the current mean
-        
+
         :return: current sampled mean
         :rtype: numpy array
         """
         return self.new_mean
 
     def variance(self):
-        """Get the current variance 
-        
+        """Get the current variance
+
         :return: current variance
         :rtype: numpy array
         """
@@ -121,8 +124,8 @@ class Stats(object):
             return self.empty
 
     def std(self):
-        """Get the current standard deviation 
-        
+        """Get the current standard deviation
+
         :return: current standard deviation
         :rtype: numpy array
         """

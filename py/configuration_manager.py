@@ -5,16 +5,16 @@
 #
 # Author: Todd Giles (todd@lightshowpi.com)
 #
-# TODO(todd): Refactor the configuration manager into a configuration manager class (to remove
-#             the extensive use of globals currently used).
-# TODO(todd): Add a main and allow running configuration manager alone to view the current
-#             configuration, and potentially edit it.
+# TODO(todd): Refactor the configuration manager into a configuration manager
+#             class (to remove the extensive use of globals currently used).
+# TODO(todd): Add a main and allow running configuration manager alone to view
+#             the current configuration, and potentially edit it.
 
 
 """Configuration management for the lightshow.
 
-Configuration files are all located in the <homedir>/config directory. This file contains tools to
-manage these configuration files.
+Configuration files are all located in the <homedir>/config directory. This
+file contains tools to manage these configuration files.
 """
 
 import ConfigParser
@@ -47,7 +47,8 @@ CONFIG.read([CONFIG_DIR + '/overrides.cfg', '/home/pi/.lights.cfg',
 
 
 def _as_list(list_str, delimiter=','):
-    """Return a list of items from a delimited string (after stripping whitespace).
+    """Return a list of items from a delimited string (after stripping
+    whitespace).
 
     :param list_str: string to turn into a list
     :type list_str: str
@@ -86,7 +87,8 @@ def hardware():
             logging.error("devices not defined or not in JSON format."
                           + str(error))
 
-        _HARDWARE_CONFIG["devices"] = devices
+        _HARDWARE_CONFIG["devices"] = {d.lower(): v
+                                       for d,v in devices.iteritems()}
 
     return _HARDWARE_CONFIG
 
