@@ -283,7 +283,7 @@ class FFT(object):
 
         if isinstance(self.custom_channel_frequencies, list):
             self.config.set('fft', 'custom_channel_frequencies',
-                            str(self.custom_channel_frequencies)[2:-1])
+                            str(self.custom_channel_frequencies)[1:-1])
         else:
             self.config.set('fft', 'custom_channel_frequencies',
                             str(self.custom_channel_frequencies))
