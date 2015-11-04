@@ -14,7 +14,7 @@
 When executed, this script will play an audio file, as well as turn on
 and off N channels of lights to the music (by default the first 8 GPIO
 channels on the Rasberry Pi), based upon music it is playing. Many
-types of audio files are supported (see decoder.py below), but it has
+types of audio files are supported, but it has
 only been tested with wav and mp3 at the time of this writing.
 
 The timing of the lights turning on and off is based upon the frequency
@@ -53,9 +53,6 @@ Third party dependencies:
 alsaaudio: for audio input/output
     http://pyalsaaudio.sourceforge.net/
 
-decoder.py: decoding mp3, ogg, wma, ...
-    https://pypi.python.org/pypi/decoder.py/1.5XB
-
 numpy: for FFT calcuation
     http://www.numpy.org/
 """
@@ -74,12 +71,11 @@ import subprocess
 import sys
 import threading
 import time
-import wave
 
 import alsaaudio as aa
-import decoder
 import numpy as np
 
+import audio_decoder
 import audio_output
 import fft
 import configuration_manager as cm
@@ -330,10 +326,7 @@ def get_song(play_now, song_to_play):
 @contextlib.contextmanager
 def stream_music(song_filename, play_now):
     # Set up audio
-    if song_filename.endswith('.wav'):
-        music_file = wave.open(song_filename, 'r')
-    else:
-        music_file = decoder.open(song_filename)
+    music_file = audio_decoder.open(song_filename)
 
     # TODO(mdietz): We can get this from the cache, too
     sample_rate = music_file.getframerate()
@@ -342,12 +335,11 @@ def stream_music(song_filename, play_now):
 
     # Just a vanity metric
     chunk_period = float(CHUNK_SIZE) / float(sample_rate)
-    
-    song_length = str(music_file.getnframes() / sample_rate)
-    logging.info("Playing: %s (%s) sec" % (song_filename, song_length))
+
+    logging.info("Playing: %s" % song_filename)
     logging.info("Sample Rate: %d" % sample_rate)
-    logging.info("Number of Channels: %d" % sample_rate)
-    logging.info("Chunk period: %d" % chunk_period)
+    logging.info("Number of Channels: %d" % num_channels)
+    logging.info("Chunk period: %f" % chunk_period)
 
     def next_chunk():
         while True:
@@ -395,10 +387,7 @@ def load_cached_fft(fft_calc, cache_filename):
 
 
 def cache_song(song_filename):
-    if song_filename.endswith('.wav'):
-        music_file = wave.open(song_filename, 'r')
-    else:
-        music_file = decoder.open(song_filename)
+    music_file = audio_decoder.open(song_filename)
     sample_rate = music_file.getframerate()
     num_channels = music_file.getnchannels()
     logging.info("Sample rate: %s" % sample_rate)
@@ -412,8 +401,6 @@ def cache_song(song_filename):
                        _MAX_FREQUENCY,
                        _CUSTOM_CHANNEL_MAPPING,
                        _CUSTOM_CHANNEL_FREQUENCIES)
-
-    song_length = str(music_file.getnframes() / sample_rate)
 
     # Init cache matrix
     cache_matrix = np.empty(shape=[0, hc.GPIOLEN])

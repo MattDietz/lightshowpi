@@ -24,12 +24,7 @@ BUILD_DIR=${INSTALL_DIR}/build_dir
 PYTHON_PATH=/usr/lib/python2.7
 PYTHON_REQUIREMENTS_PATH=requirements.txt
 
-DECODER_PATH=http://www.brailleweb.com/downloads
-DECODER_PACKAGE=decoder-1.5XB-Unix.zip
-DECODER_LOCAL_PATH=decoder-1.5XB-Unix
-DECODER_FILES=(decoder.py codecs.pdc fileinfo.py)
-
-ENV_VARIABLE="SYNCHRONIZED_LIGHTS_HOME=${INSTALL_DIR}"
+    ENV_VARIABLE="SYNCHRONIZED_LIGHTS_HOME=${INSTALL_DIR}"
 exists=`grep -r "$ENV_VARIABLE" /etc/profile*`
 
 # Root check
@@ -67,16 +62,6 @@ apt-get update
 # Doesn't hurt to try to install things even if some are already installed
 apt-get install -y git python-setuptools python-pip python-dev build-essential mercurial
 pip install python-setuptools --upgrade
-
-# install decoder
-# http://www.brailleweb.com
-# TODO(mdietz): Upload this to pypi
-wget $DECODER_PATH/$DECODER_PACKAGE
-unzip $DECODER_PACKAGE
-cd $DECODER_LOCAL_PATH
-
-# TODO(mdietz): This isn't even going to site-packages!
-cp ${DECODER_FILES[*]} $PYTHON_PATH
 
 # Install python packages from pypi
 popd
