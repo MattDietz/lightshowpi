@@ -76,6 +76,7 @@ import alsaaudio as aa
 import numpy as np
 
 import audio_decoder
+import audio_input
 import audio_output
 import fft
 import configuration_manager as cm
@@ -179,8 +180,8 @@ def audio_in():
 
     # Start with these as our initial guesses - will calculate a rolling
     # mean / std as we get input data.
-    mean = np.array([12.0 for _ in range(hc.GPIOLEN)], dtype='float64')
-    std = np.array([1.5 for _ in range(hc.GPIOLEN)], dtype='float64')
+    mean = np.array([12.0 for _ in xrange(hc.GPIOLEN)], dtype='float64')
+    std = np.array([1.5 for _ in xrange(hc.GPIOLEN)], dtype='float64')
     count = 2
 
     running_stats = running_stats.Stats(hc.GPIOLEN)
@@ -316,41 +317,6 @@ def get_song(play_now, song_to_play):
     song_filename = song_filename.replace("$SYNCHRONIZED_LIGHTS_HOME",
                                           cm.HOME_DIR)
     return song_title, song_filename
-
-
-# TODO(mdietz): This pre-caching is fine but we should still be able to do a
-#               live mode with a mic or the audio-in port. I'll need to fork
-#               PiFmRds and have it take raw input
-# TODO(mdietz): Looking like the music handle should be a class
-#               so we don't have to yield 3 things
-@contextlib.contextmanager
-def stream_music(song_filename, play_now):
-    # Set up audio
-    music_file = audio_decoder.open(song_filename)
-
-    # TODO(mdietz): We can get this from the cache, too
-    sample_rate = music_file.getframerate()
-    num_channels = music_file.getnchannels()
-    sample_width = music_file.getsampwidth()
-
-    # Just a vanity metric
-    chunk_period = float(CHUNK_SIZE) / float(sample_rate)
-
-    logging.info("Playing: %s" % song_filename)
-    logging.info("Sample Rate: %d" % sample_rate)
-    logging.info("Number of Channels: %d" % num_channels)
-    logging.info("Chunk period: %f" % chunk_period)
-
-    def next_chunk():
-        while True:
-            data = music_file.readframes(CHUNK_SIZE)
-            if not data:
-                break
-            yield data
-
-    # TODO(mdietz): not really a fan of this interface
-    yield num_channels, sample_rate, next_chunk
-    music_file.close()
 
 
 def load_cached_fft(fft_calc, cache_filename):
@@ -502,45 +468,46 @@ def play_song():
     light_show_delay = _CONFIG.getfloat("lightshow", "light_delay")
     logging.info("Delaying light show by %f seconds" % light_show_delay)
 
-    with stream_music(song_filename, play_now) as (num_channels, sample_rate,
-                                                   next_chunk):
-        audio_out_stream = audio_output.get_audio_output_handler(num_channels,
-                                                                 sample_rate,
-                                                                 song_title)
-        try:
-            # Process audio
-            row = 0
-            start_time = time.time()
-            for data in next_chunk():
-                if play_now:
-                    break
+    audio_in_stream = audio_input.get_audio_input_handler(song_filename)
+    audio_out_stream = audio_output.get_audio_output_handler(
+        audio_in_stream.num_channels, audio_in_stream.sample_rate,
+        song_title)
 
-                audio_out_stream.write(data)
-                # TODO(mdietz): This actually pretty much works, but it would
-                #               be nice to figure out what the actual delay
-                #               time is, and also make it a config value
-                # TODO(mdietz): I may be able to time the popen to first stdout
-                #               from the fm proc for a dynamic delay
-                if time.time() - start_time < light_show_delay:
-                    continue
+    try:
+        # Process audio
+        row = 0
+        start_time = time.time()
+        while True:
+            data = audio_in_stream.next_chunk()
+            if not data or play_now:
+                break
 
-                matrix = cache_matrix[row]
-                update_lights(matrix, mean, std)
+            audio_out_stream.write(data)
+            # TODO(mdietz): This actually pretty much works, but it would
+            #               be nice to figure out what the actual delay
+            #               time is, and also make it a config value
+            # TODO(mdietz): I may be able to time the popen to first stdout
+            #               from the fm proc for a dynamic delay
+            if time.time() - start_time < light_show_delay:
+                continue
 
-                # Read next chunk of data from music
+            matrix = cache_matrix[row]
+            update_lights(matrix, mean, std)
 
-                # Load new application state in case we've been interrupted
-                # TODO(mdietz): not the way to do this. Read from a db,
-                #               accept a signal or some other OOB proc
-                cm.load_state()
-                play_now = int(cm.get_state('play_now', "0"))
-                row += 1
+            # Read next chunk of data from music
 
-            # Cleanup the fm process if there is one
-        except Exception:
-            logger.exception("Error in playback")
-        finally:
-            audio_out_stream.cleanup()
+            # Load new application state in case we've been interrupted
+            # TODO(mdietz): not the way to do this. Read from a db,
+            #               accept a signal or some other OOB proc
+            cm.load_state()
+            play_now = int(cm.get_state('play_now', "0"))
+            row += 1
+
+        # Cleanup the fm process if there is one
+    except Exception:
+        logging.exception("Error in playback")
+    finally:
+        audio_out_stream.cleanup()
 
     # check for postshow
     prepostshow.PrePostShow('postshow', hc).execute()
