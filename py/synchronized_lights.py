@@ -351,7 +351,7 @@ def load_cached_fft(fft_calc, cache_filename):
 
     return mean, std, cache_matrix
 
-
+# TODO(mdietz): cache dir should be configurable
 def cache_song(song_filename):
     music_file = audio_decoder.open(song_filename)
     sample_rate = music_file.getframerate()
