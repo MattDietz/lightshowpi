@@ -7,7 +7,8 @@ import alsaaudio as aa
 import configuration_manager as cm
 
 
-def get_audio_output_handler(num_channels, sample_rate, song_title):
+def get_audio_output_handler(num_channels, sample_rate, song_title,
+                             chunk_size):
     cfg = cm.CONFIG
     use_fm = cfg.getboolean('audio_processing', 'fm')
     klass = PCMOutput
@@ -17,14 +18,15 @@ def get_audio_output_handler(num_channels, sample_rate, song_title):
             klass = PiFmOutput
         elif fm_flavor == "pifmrds":
             klass = PiFmRdsOutput
-    return klass(num_channels, sample_rate, song_title)
+    return klass(num_channels, sample_rate, song_title, chunk_size)
 
 
 class AudioOutput(object):
-    def __init__(self, num_channels, sample_rate, song_title):
+    def __init__(self, num_channels, sample_rate, song_title, chunk_size):
         self._num_channels = str(num_channels)
         self._sample_rate = str(sample_rate)
         self._song_title = str(song_title)
+        self._chunk_size = chunk_size
         self._launched = False
         self._launch()
 
@@ -42,12 +44,11 @@ class AudioOutput(object):
 
 class PCMOutput(AudioOutput):
     def _launch(self):
-        chunk_size = cm.CONFIG.getint("audio_processing", "chunk_size")
         output = aa.PCM(aa.PCM_PLAYBACK, aa.PCM_NORMAL)
         output.setchannels(self._num_channels)
         output.setrate(self._sample_rate)
         output.setformat(aa.PCM_FORMAT_S16_LE)
-        output.setperiodsize(chunk_size)
+        output.setperiodsize(self._chunk_size)
         self._output = output
 
     def write(self, data):

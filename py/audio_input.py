@@ -4,12 +4,12 @@ import audio_decoder
 import configuration_manager as cm
 
 
-def get_audio_input_handler(song_filename):
+def get_audio_input_handler(song_filename, chunk_size):
     cfg = cm.CONFIG
     if cm.lightshow()['mode'] == 'audio-in':
         return LineInput()
     else:
-        return StreamInput(song_filename)
+        return StreamInput(song_filename, chunk_size)
 
 
 class LineInput(object):
@@ -62,9 +62,9 @@ class LineInput(object):
 
 
 class StreamInput(object):
-    def __init__(self, song_filename):
+    def __init__(self, song_filename, chunk_size):
         music_file = audio_decoder.open(song_filename)
-        self._chunk_size = cm.CONFIG.getint("audio_processing", "chunk_size")
+        self._chunk_size = chunk_size
 
         # TODO(mdietz): We can get this from the cache, too
         self.sample_rate = music_file.getframerate()
@@ -77,6 +77,7 @@ class StreamInput(object):
         logging.info("Playing: %s" % song_filename)
         logging.info("Sample Rate: %d" % self.sample_rate)
         logging.info("Number of Channels: %d" % self.num_channels)
+        logging.info("Chunk size: %d" % self._chunk_size)
         logging.info("Chunk period: %f" % chunk_period)
         self._stream = music_file
 

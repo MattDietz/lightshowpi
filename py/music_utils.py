@@ -6,7 +6,9 @@ import re
 import sys
 import wave
 
+import json
 from mutagen import easyid3
+import yaml
 
 import audio_decoder
 
@@ -30,7 +32,7 @@ def fetch_id3_meta(song_filename):
         return {"title": None, "artist": None}
 
 
-def get_song_meta(song_filename):
+def get_song_meta(song_filename, chunk_size):
     music_file = audio_decoder.open(song_filename)
     sample_rate = music_file.getframerate()
     num_channels = music_file.getnchannels()
@@ -43,13 +45,15 @@ def get_song_meta(song_filename):
 
     # TODO(mdietz): Try to get an id3 tag so we can get album and title
     meta = {
-        "full_path": dirname,
+        "filename": filename,
+        "path": dirname,
         "sample_rate": sample_rate,
         "num_channels": num_channels,
         "sample_width": sample_width,
         "frame_width": sample_width * num_channels,
         "config_cache": config_cache,
         "fft_cache": fft_cache,
+        "chunk_size": chunk_size
     }
     meta.update(fetch_id3_meta(song_filename))
 
@@ -83,12 +87,10 @@ def display_song_meta(song_meta):
 
 def write_playlist(song_meta, output_path):
     with open(output_path, 'w') as output:
+        doc = []
         for song, meta in song_meta:
-            if meta["artist"]:
-                song_title = "%s - %s" % (meta["artist"], meta["title"])
-            else:
-                song_title = song
-            output.write("%s\t%s/%s\n" % (song_title, meta["full_path"], song))
+            doc.append(meta)
+        output.write(json.dumps(doc, indent=1))
 
 
 if __name__ == "__main__":
@@ -100,11 +102,15 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str,
                         help="Writes a playlist to the path specified if "
                              "provided")
+    parser.add_argument("--chunk_size", type=int,
+                        help="Size of each chunk to read from the path. "
+                             "Directly controls the light update rate",
+                             default=8192)
     args = parser.parse_args()
     music_path = args.path
     recursive = args.recursive
     songs = walk_path(music_path, recursive)
-    song_meta = [get_song_meta(song) for song in songs]
+    song_meta = [get_song_meta(song, args.chunk_size) for song in songs]
     if args.output:
         write_playlist(song_meta, args.output)
     else:

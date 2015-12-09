@@ -63,6 +63,7 @@ import audioop
 import contextlib
 import csv
 import fcntl
+import json
 import logging
 import multiprocessing.pool
 import os
@@ -153,6 +154,7 @@ def update_lights(matrix, mean, std):
 
         if not hc.is_pin_pwm[pin]:
             # If pin is on / off mode we'll turn on at 1/2 brightness
+            # TODO(mdietz): Configurable per channel threshold!
             if brightness > 0.5:
                 hc.turn_on_light(pin, True)
             else:
@@ -180,8 +182,8 @@ def audio_in():
 
     # Start with these as our initial guesses - will calculate a rolling
     # mean / std as we get input data.
-    mean = np.array([12.0 for _ in xrange(hc.GPIOLEN)], dtype='float64')
-    std = np.array([1.5 for _ in xrange(hc.GPIOLEN)], dtype='float64')
+    mean = np.array([12.0] * hc.GPIOLEN, dtype='float64')
+    std = np.array([1.5] * hc.GPIOLEN, dtype='float64')
     count = 2
 
     running_stats = running_stats.Stats(hc.GPIOLEN)
@@ -245,23 +247,19 @@ def get_song(play_now, song_to_play):
     if args.playlist is not None and args.file is None:
         most_votes = [None, None, []]
 
-        with open(args.playlist, 'rb') as playlist_fp:
+        with open(args.playlist, 'r') as playlist_fp:
             fcntl.lockf(playlist_fp, fcntl.LOCK_SH)
-            playlist = csv.reader(playlist_fp, delimiter='\t')
             songs = []
-
+            playlist = json.load(playlist_fp)
             for song in playlist:
-                if len(song) < 2 or len(song) > 4:
-                    logging.error('Invalid playlist.  Each line should be in '
-                                  'the form: <song name><tab><path to song>')
-                    sys.exit()
-                elif len(song) == 2:
-                    song.append(set())
-                else:
-                    song[2] = set(song[2].split(','))
-                    if len(song) == 3 and len(song[2]) >= len(most_votes[2]):
-                        most_votes = song
-                songs.append(song)
+                path = os.path.join(song["path"], song["filename"])
+                path = path.replace("$SYNCHRONIZED_LIGHTS_HOME",
+                                    cm.HOME_DIR)
+                song_meta = {
+                    "title": song["title"],
+                    "path": path,
+                    "chunk_size": song["chunk_size"]}
+                songs.append(song_meta)
 
             fcntl.lockf(playlist_fp, fcntl.LOCK_UN)
 
@@ -273,7 +271,6 @@ def get_song(play_now, song_to_play):
             with open(args.playlist, 'wb') as playlist_fp:
                 fcntl.lockf(playlist_fp, fcntl.LOCK_EX)
                 writer = csv.writer(playlist_fp, delimiter='\t')
-
                 for song in songs:
                     if current_song == song and len(song) == 3:
                         song.append("playing!")
@@ -310,13 +307,9 @@ def get_song(play_now, song_to_play):
                 cm.update_state('song_to_play', str(next_song))
 
         # Get filename to play and store the current song playing in state cfg
-        song_filename = current_song[1]
         cm.update_state('current_song', str(songs.index(current_song)))
 
-    song_title = song[0]
-    song_filename = song_filename.replace("$SYNCHRONIZED_LIGHTS_HOME",
-                                          cm.HOME_DIR)
-    return song_title, song_filename
+    return current_song
 
 
 def load_cached_fft(fft_calc, cache_filename):
@@ -352,7 +345,7 @@ def load_cached_fft(fft_calc, cache_filename):
     return mean, std, cache_matrix
 
 # TODO(mdietz): cache dir should be configurable
-def cache_song(song_filename):
+def cache_song(song_filename, chunk_size):
     music_file = audio_decoder.open(song_filename)
     sample_rate = music_file.getframerate()
     num_channels = music_file.getnchannels()
@@ -360,7 +353,7 @@ def cache_song(song_filename):
     logging.info("Channels: %s" % num_channels)
     logging.info("Frame size: %s" % music_file.getsampwidth())
 
-    fft_calc = fft.FFT(CHUNK_SIZE,
+    fft_calc = fft.FFT(chunk_size,
                        sample_rate,
                        hc.GPIOLEN,
                        _MIN_FREQUENCY,
@@ -380,11 +373,11 @@ def cache_song(song_filename):
         # The values 12 and 1.5 are good estimates for first time playing back
         # (i.e. before we have the actual mean and standard deviations
         # calculated for each channel).
-        mean = [12.0 for _ in xrange(hc.GPIOLEN)]
-        std = [1.5 for _ in xrange(hc.GPIOLEN)]
+        mean = [12.0] * hc.GPIOLEN
+        std = [1.5] * hc.GPIOLEN
         total = 0
         while True:
-            data = music_file.readframes(CHUNK_SIZE)
+            data = music_file.readframes(chunk_size)
             if not data:
                 break
             total += len(data)
@@ -420,9 +413,9 @@ def cache_song(song_filename):
 
 def get_next_song_path(play_now):
     song_to_play = int(cm.get_state('song_to_play', "0"))
-    song_title, song_filename = get_song(play_now, song_to_play)
-    song_filename = os.path.abspath(song_filename)
-    return song_title, song_filename
+    song = get_song(play_now, song_to_play)
+    song_filename = os.path.abspath(song["path"])
+    return song["title"], song["path"], song["chunk_size"]
 
 
 # TODO(mdietz): the project assumes that this is simply a python bin
@@ -440,11 +433,11 @@ def play_song():
     # Initialize Lights
     hc.initialize()
 
-    song_title, song_filename = get_next_song_path(play_now)
+    song_title, song_filename, chunk_size = get_next_song_path(play_now)
 
     # Fork and warm the cache. Technically race prone but meh
     pool = multiprocessing.pool.Pool(processes=1)
-    cache_proc = pool.apply_async(cache_song, [song_filename])
+    cache_proc = pool.apply_async(cache_song, [song_filename, chunk_size])
 
     # Handle the pre/post show
     if not play_now:
@@ -468,10 +461,11 @@ def play_song():
     light_show_delay = _CONFIG.getfloat("lightshow", "light_delay")
     logging.info("Delaying light show by %f seconds" % light_show_delay)
 
-    audio_in_stream = audio_input.get_audio_input_handler(song_filename)
+    audio_in_stream = audio_input.get_audio_input_handler(song_filename,
+                                                          chunk_size)
     audio_out_stream = audio_output.get_audio_output_handler(
         audio_in_stream.num_channels, audio_in_stream.sample_rate,
-        song_title)
+        song_title, chunk_size)
 
     try:
         # Process audio
