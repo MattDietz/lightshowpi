@@ -11,9 +11,11 @@ from mutagen import easyid3
 import yaml
 
 import audio_decoder
+import configuration_manager as cm
 
 
 MUSIC_EXTENSIONS = ["mp3", "ogg", "flac", "wav"]
+CONFIG = cm.CONFIG
 
 
 def check_cache_exists(path, song_filename):
@@ -102,10 +104,11 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str,
                         help="Writes a playlist to the path specified if "
                              "provided")
+    default_chunk_size = cm.getint("audio_processing", "chunk_size")
     parser.add_argument("--chunk_size", type=int,
                         help="Size of each chunk to read from the path. "
                              "Directly controls the light update rate",
-                             default=8192)
+                             default=default_chunk_size)
     args = parser.parse_args()
     music_path = args.path
     recursive = args.recursive

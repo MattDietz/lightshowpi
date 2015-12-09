@@ -227,24 +227,29 @@ class FFT(object):
             fft_cache["chunk_size"] = self.config.getint("fft", "chunk_size")
             fft_cache["sample_rate"] = self.config.getint("fft", "sample_rate")
             fft_cache["num_bins"] = self.config.getint("fft", "num_bins")
-            fft_cache["min_frequency"] = self.config.getfloat("fft", "min_frequency")
-            fft_cache["max_frequency"] = self.config.getfloat("fft", "max_frequency")
+            fft_cache["min_frequency"] = self.config.getfloat("fft",
+                                                              "min_frequency")
+            fft_cache["max_frequency"] = self.config.getfloat("fft",
+                                                              "max_frequency")
 
             temp = [int(channel) for channel in
-                    self.config.get("fft", "custom_channel_mapping").split(',')]
+                    self.config.get("fft",
+                                    "custom_channel_mapping").split(',')]
             if len(temp) == 1:
                 fft_cache["custom_channel_mapping"] = temp[0]
             else:
                 fft_cache["custom_channel_mapping"] = temp
 
             temp = [int(channel) for channel in
-                    self.config.get("fft", "custom_channel_frequencies").split(',')]
+                    self.config.get("fft",
+                                    "custom_channel_frequencies").split(',')]
             if len(temp) == 1:
                 fft_cache["custom_channel_frequencies"] = temp[0]
             else:
                 fft_cache["custom_channel_frequencies"] = temp
 
-            fft_cache["input_channels"] = self.config.getint("fft", "input_channels")
+            fft_cache["input_channels"] = self.config.getint("fft",
+                                                             "input_channels")
         except ConfigParser.Error:
             has_config = False
 
@@ -254,7 +259,8 @@ class FFT(object):
         fft_current["min_frequency"] = self.min_frequency
         fft_current["max_frequency"] = self.max_frequency
         fft_current["custom_channel_mapping"] = self.custom_channel_mapping
-        fft_current["custom_channel_frequencies"] = self.custom_channel_frequencies
+        freq = self.custom_channel_frequencies
+        fft_current["custom_channel_frequencies"] = freq
         fft_current["input_channels"] = self.input_channels
 
         if fft_cache != fft_current:
