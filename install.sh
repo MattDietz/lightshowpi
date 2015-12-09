@@ -60,7 +60,7 @@ cd $BUILD_DIR
 apt-get update
 
 # Doesn't hurt to try to install things even if some are already installed
-apt-get install -y git python-setuptools python-pip python-dev build-essential mercurial
+apt-get install -y git python-setuptools python-pip python-dev build-essential mercurial libyaml-dev
 pip install python-setuptools --upgrade
 
 # Install python packages from pypi

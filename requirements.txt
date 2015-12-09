@@ -10,3 +10,4 @@ numpy==1.10.1
 wiringpi2
 hg+https://code.google.com/r/kkleidal-pygooglevoiceupdate/
 BeautifulSoup==3.2.1
+PyYAML==3.11
