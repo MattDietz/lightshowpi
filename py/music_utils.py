@@ -60,7 +60,7 @@ def get_song_meta(song_filename, chunk_size):
     meta.update(fetch_id3_meta(song_filename))
 
     music_file.close()
-    return filename, meta
+    return meta
 
 
 def walk_path(music_path, recursive=False):
@@ -87,10 +87,39 @@ def display_song_meta(song_meta):
             print "\t%s -> %s" % (key, value)
 
 
+def diff_playlists(new_meta, output_path):
+    if not os.path.exists(output_path):
+        return new_meta
+
+    with open(output_path, 'r') as output:
+        try:
+            old_meta = json.load(output)
+        except Exception, e:
+            print "Existing playlist empty or corrupted"
+            return new_meta
+
+    # TODO(mdietz): Filenames are unreliable at best. Probably
+    #               should do MD5 or SHA
+    new_songs = {s["filename"]: s for s in new_meta}
+    old_songs = {s["filename"]: s for s in old_meta}
+    for path, meta in old_songs.iteritems():
+        if path in new_songs:
+            new_songs.pop(path)
+    updated_meta = []
+    updated_meta.extend(old_meta)
+    updated_meta.extend(new_songs.values())
+    if not new_songs:
+        print "Nothing to do"
+    else:
+        print "New songs found: ", [v["title"]
+                                    for k, v in new_songs.iteritems()]
+    return updated_meta
+
+
 def write_playlist(song_meta, output_path):
     with open(output_path, 'w') as output:
         doc = []
-        for song, meta in song_meta:
+        for meta in song_meta:
             doc.append(meta)
         output.write(json.dumps(doc, indent=1))
 
@@ -104,7 +133,11 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str,
                         help="Writes a playlist to the path specified if "
                              "provided")
-    default_chunk_size = cm.getint("audio_processing", "chunk_size")
+    parser.add_argument("--append", type=str,
+                        help="Updates a playlist at the specified location, "
+                             "only adding new songs not present in the "
+                             "existing list")
+    default_chunk_size = CONFIG.getint("audio_processing", "chunk_size")
     parser.add_argument("--chunk_size", type=int,
                         help="Size of each chunk to read from the path. "
                              "Directly controls the light update rate",
@@ -112,9 +145,19 @@ if __name__ == "__main__":
     args = parser.parse_args()
     music_path = args.path
     recursive = args.recursive
+    if args.output and args.append:
+        print "Can't specify output and append modes at the same time!"
+        sys.exit(1)
+
     songs = walk_path(music_path, recursive)
     song_meta = [get_song_meta(song, args.chunk_size) for song in songs]
-    if args.output:
+    if args.append:
+        print "Appending..."
+        song_meta = diff_playlists(song_meta, args.append)
+        if song_meta:
+            write_playlist(song_meta, args.append)
+    elif args.output:
+        print "Writing/overwriting..."
         write_playlist(song_meta, args.output)
     else:
         display_song_meta(song_meta)
