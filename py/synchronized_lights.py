@@ -153,6 +153,7 @@ def update_lights(matrix, mean, std):
 
         if not hc.is_pin_pwm[pin]:
             # If pin is on / off mode we'll turn on at 1/2 brightness
+            # TODO(mdietz): Configurable per channel threshold!
             if brightness > 0.5:
                 hc.turn_on_light(pin, True)
             else:
@@ -180,8 +181,8 @@ def audio_in():
 
     # Start with these as our initial guesses - will calculate a rolling
     # mean / std as we get input data.
-    mean = np.array([12.0 for _ in xrange(hc.GPIOLEN)], dtype='float64')
-    std = np.array([1.5 for _ in xrange(hc.GPIOLEN)], dtype='float64')
+    mean = np.array([12.0] * hc.GPIOLEN, dtype='float64')
+    std = np.array([1.5] * hc.GPIOLEN)], dtype='float64')
     count = 2
 
     running_stats = running_stats.Stats(hc.GPIOLEN)
@@ -380,8 +381,8 @@ def cache_song(song_filename):
         # The values 12 and 1.5 are good estimates for first time playing back
         # (i.e. before we have the actual mean and standard deviations
         # calculated for each channel).
-        mean = [12.0 for _ in xrange(hc.GPIOLEN)]
-        std = [1.5 for _ in xrange(hc.GPIOLEN)]
+        mean = [12.0] * hc.GPIOLEN
+        std = [1.5] hc.GPIOLEN
         total = 0
         while True:
             data = music_file.readframes(CHUNK_SIZE)
