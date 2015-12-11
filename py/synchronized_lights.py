@@ -62,7 +62,6 @@ import atexit
 import audioop
 import contextlib
 import csv
-import fcntl
 import json
 import logging
 import multiprocessing.pool
@@ -82,6 +81,7 @@ import audio_output
 import fft
 import configuration_manager as cm
 import hardware_controller as hc
+import playlist
 import prepostshow
 import running_stats
 
@@ -117,10 +117,10 @@ _PLAYLIST_PATH = cm.lightshow()['playlist_path'].replace(
 #               the code knows that
 CHUNK_SIZE = _CONFIG.getint("audio_processing", "chunk_size")
 
-
 def end_early():
     """atexit function"""
-    hc.clean_up()
+    if not CLEAN_EXIT:
+        hc.clean_up()
 
 
 atexit.register(end_early)
@@ -232,84 +232,7 @@ def audio_in():
         hc.clean_up()
 
 
-# TODO(todd): Refactor more of this to make it more readable / modular.
-def get_song(play_now, song_to_play):
-    """
-    Determine the next file to play
 
-    :param play_now: application state
-    :type play_now: int
-
-    :param song_to_play: index of song to play in playlist
-    :type song_to_play: int
-    """
-    song_filename = args.file
-    if args.playlist is not None and args.file is None:
-        most_votes = [None, None, []]
-
-        with open(args.playlist, 'r') as playlist_fp:
-            fcntl.lockf(playlist_fp, fcntl.LOCK_SH)
-            songs = []
-            playlist = json.load(playlist_fp)
-            for song in playlist:
-                path = os.path.join(song["path"], song["filename"])
-                path = path.replace("$SYNCHRONIZED_LIGHTS_HOME",
-                                    cm.HOME_DIR)
-                song_meta = {
-                    "title": song["title"],
-                    "path": path,
-                    "chunk_size": song["chunk_size"]}
-                songs.append(song_meta)
-
-            fcntl.lockf(playlist_fp, fcntl.LOCK_UN)
-
-        if most_votes[0] is not None:
-            logging.info("Most Votes: " + str(most_votes))
-            current_song = most_votes
-
-            # Update playlist with latest votes
-            with open(args.playlist, 'wb') as playlist_fp:
-                fcntl.lockf(playlist_fp, fcntl.LOCK_EX)
-                writer = csv.writer(playlist_fp, delimiter='\t')
-                for song in songs:
-                    if current_song == song and len(song) == 3:
-                        song.append("playing!")
-
-                    if len(song[2]) > 0:
-                        song[2] = ",".join(song[2])
-                    else:
-                        del song[2]
-
-                writer.writerows(songs)
-                fcntl.lockf(playlist_fp, fcntl.LOCK_UN)
-
-        else:
-            # Get a "play now" requested song
-            if 0 < play_now <= len(songs):
-                current_song = songs[play_now - 1]
-            # Get random song
-            elif _RANDOMIZE_PLAYLIST:
-                # Use python's random.randrange() to get a random song
-                current_song = songs[random.randrange(0, len(songs))]
-
-            # Play next song in the lineup
-            else:
-                if not (song_to_play <= len(songs) - 1):
-                    song_to_play = 0
-
-                current_song = songs[song_to_play]
-
-                if (song_to_play + 1) <= len(songs) - 1:
-                    next_song = (song_to_play + 1)
-                else:
-                    next_song = 0
-
-                cm.update_state('song_to_play', str(next_song))
-
-        # Get filename to play and store the current song playing in state cfg
-        cm.update_state('current_song', str(songs.index(current_song)))
-
-    return current_song
 
 
 def load_cached_fft(fft_calc, cache_filename):
@@ -411,17 +334,13 @@ def cache_song(song_filename, chunk_size):
     return mean, std, cache_matrix
 
 
-def get_next_song_path(play_now):
-    song_to_play = int(cm.get_state('song_to_play', "0"))
-    song = get_song(play_now, song_to_play)
-    song_filename = os.path.abspath(song["path"])
-    return song["title"], song["path"], song["chunk_size"]
+
 
 
 # TODO(mdietz): the project assumes that this is simply a python bin
 #               that is called by a bash script. I think we should
 #               re-work that to be a long running thing, all in Python
-def play_song():
+def play_song(num_songs):
     """Play the next song from the play list (or --file argument)."""
     play_now = int(cm.get_state('play_now', "0"))
 
@@ -430,92 +349,98 @@ def play_song():
         print "One of --playlist or --file must be specified"
         sys.exit()
 
+    current_playlist = playlist.Playlist(args.playlist, num_songs)
+
     # Initialize Lights
     hc.initialize()
 
-    song_title, song_filename, chunk_size = get_next_song_path(play_now)
-
     # Fork and warm the cache. Technically race prone but meh
     pool = multiprocessing.pool.Pool(processes=1)
-    cache_proc = pool.apply_async(cache_song, [song_filename, chunk_size])
 
-    # Handle the pre/post show
-    if not play_now:
-        result = prepostshow.PrePostShow('preshow', hc).execute()
+    for (song_title,
+         song_filename,
+         chunk_size) in current_playlist.get_song():
 
-        if result == prepostshow.PrePostShow.play_now_interrupt:
-            play_now = int(cm.get_state('play_now', "0"))
+        cache_proc = pool.apply_async(cache_song, [song_filename, chunk_size])
 
-    # TODO(mdietz): What the hell is this play_now variable really for?
-    # Ensure play_now is reset before beginning playback
-    if play_now:
-        cm.update_state('play_now', "0")
-        play_now = 0
+        # Handle the pre/post show
+        if not play_now:
+            result = prepostshow.PrePostShow('preshow', hc).execute()
 
-    # Wait for the cache
-    cache_proc.wait()
-    mean, std, cache_matrix = cache_proc.get()
+            if result == prepostshow.PrePostShow.play_now_interrupt:
+                play_now = int(cm.get_state('play_now', "0"))
 
-    # NOTE(mdietz): Adapt this to a standard radio, not an SDR. The SDR
-    #               has a clear extra amount of delay
-    light_show_delay = _CONFIG.getfloat("lightshow", "light_delay")
-    logging.info("Delaying light show by %f seconds" % light_show_delay)
+        # TODO(mdietz): What the hell is this play_now variable really for?
+        # Ensure play_now is reset before beginning playback
+        if play_now:
+            cm.update_state('play_now', "0")
+            play_now = 0
 
-    audio_in_stream = audio_input.get_audio_input_handler(song_filename,
-                                                          chunk_size)
-    audio_out_stream = audio_output.get_audio_output_handler(
-        audio_in_stream.num_channels, audio_in_stream.sample_rate,
-        song_title, chunk_size)
+        # Wait for the cache
+        cache_proc.wait()
+        mean, std, cache_matrix = cache_proc.get()
 
-    try:
-        # Process audio
-        row = 0
-        start_time = time.time()
-        while True:
-            data = audio_in_stream.next_chunk()
-            if not data or play_now:
-                break
+        # NOTE(mdietz): Adapt this to a standard radio, not an SDR. The SDR
+        #               has a clear extra amount of delay
+        light_show_delay = _CONFIG.getfloat("lightshow", "light_delay")
+        logging.info("Delaying light show by %f seconds" % light_show_delay)
 
-            audio_out_stream.write(data)
-            # TODO(mdietz): This actually pretty much works, but it would
-            #               be nice to figure out what the actual delay
-            #               time is, and also make it a config value
-            # TODO(mdietz): I may be able to time the popen to first stdout
-            #               from the fm proc for a dynamic delay
-            if time.time() - start_time < light_show_delay:
-                continue
+        audio_in_stream = audio_input.get_audio_input_handler(song_filename,
+                                                              chunk_size)
+        audio_out_stream = audio_output.get_audio_output_handler(
+            audio_in_stream.num_channels, audio_in_stream.sample_rate,
+            song_title, chunk_size)
 
-            matrix = cache_matrix[row]
-            update_lights(matrix, mean, std)
+        try:
+            # Process audio
+            row = 0
+            start_time = time.time()
+            while True:
+                data = audio_in_stream.next_chunk()
+                if not data or play_now:
+                    break
 
-            # Read next chunk of data from music
+                audio_out_stream.write(data)
+                # TODO(mdietz): This actually pretty much works, but it would
+                #               be nice to figure out what the actual delay
+                #               time is, and also make it a config value
+                # TODO(mdietz): I may be able to time the popen to first stdout
+                #               from the fm proc for a dynamic delay
+                if time.time() - start_time < light_show_delay:
+                    continue
 
-            # Load new application state in case we've been interrupted
-            # TODO(mdietz): not the way to do this. Read from a db,
-            #               accept a signal or some other OOB proc
-            cm.load_state()
-            play_now = int(cm.get_state('play_now', "0"))
-            row += 1
+                matrix = cache_matrix[row]
+                update_lights(matrix, mean, std)
 
-        # Cleanup the fm process if there is one
-    except Exception:
-        logging.exception("Error in playback")
-    finally:
-        audio_out_stream.cleanup()
+                # Read next chunk of data from music
 
-    # check for postshow
-    prepostshow.PrePostShow('postshow', hc).execute()
+                # Load new application state in case we've been interrupted
+                # TODO(mdietz): not the way to do this. Read from a db,
+                #               accept a signal or some other OOB proc
+                cm.load_state()
+                play_now = int(cm.get_state('play_now', "0"))
+                row += 1
 
-    # We're done, turn it all off and clean up things ;)
-    hc.clean_up()
+            # Cleanup the fm process if there is one
+        except Exception:
+            logging.exception("Error in playback")
+        finally:
+            audio_out_stream.cleanup()
+
+        # check for postshow
+        prepostshow.PrePostShow('postshow', hc).execute()
 
 
 if __name__ == "__main__":
     # Arguments
+    global CLEAN_EXIT
+    CLEAN_EXIT = False
     parser = argparse.ArgumentParser()
     parser.add_argument('--log', default='INFO',
                         help='Set the logging level. levels:INFO, DEBUG,'
                              'WARNING, ERROR, CRITICAL')
+    parser.add_argument("--num_songs", default=3,
+                        help="Number of songs to play from the playlist")
 
     filegroup = parser.add_mutually_exclusive_group()
     filegroup.add_argument('--playlist', default=_PLAYLIST_PATH,
@@ -543,4 +468,6 @@ if __name__ == "__main__":
     if cm.lightshow()['mode'] == 'audio-in':
         audio_in()
     else:
-        play_song()
+        play_song(args.num_songs)
+        CLEAN_EXIT = True
+        hc.turn_on_all_lights()

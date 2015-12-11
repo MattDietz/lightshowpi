@@ -22,12 +22,14 @@ def get_audio_output_handler(num_channels, sample_rate, song_title,
 
 
 class AudioOutput(object):
-    def __init__(self, num_channels, sample_rate, song_title, chunk_size):
+    def __init__(self, num_channels, sample_rate, song_title, chunk_size,
+                 play_stereo=True):
         self._num_channels = str(num_channels)
         self._sample_rate = str(sample_rate)
         self._song_title = str(song_title)
         self._chunk_size = chunk_size
         self._launched = False
+        self._play_stereo = True
         self._launch()
 
     def _launch(self):
@@ -62,6 +64,7 @@ class PiFmOutput(AudioOutput):
         self._launched = True
         self._r_pipe, self._w_pipe = os.pipe()
         args = self._launch_args()
+        logging.info(args)
         devnull = open(os.devnull, 'w')
         self._fm_process = subprocess.Popen(args, stdin=self._r_pipe,
                                             stdout=devnull)
@@ -69,8 +72,9 @@ class PiFmOutput(AudioOutput):
     def cleanup(self):
         if not self._launched:
             return
+        logging.info("Cleaning up FM process...")
         try:
-            self._fm_process.kill()
+            self._fm_process.terminate()
             self._fm_process.wait()
         except Exception:
             logging.info("FM process died on its own")
@@ -79,7 +83,7 @@ class PiFmOutput(AudioOutput):
     def _launch_args(self):
         frequency = cfg.get("audio_processing", "frequency")
         fm_binary = cfg.get("audio_processing", "fm_bin_path")
-        play_stereo = "stereo" if play_stereo else "mono"
+        play_stereo = "stereo" if self._play_stereo else "mono"
         return ["sudo", fm_binary, "-", frequency, "44100", play_stereo]
 
     def write(self, data):
