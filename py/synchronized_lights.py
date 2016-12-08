@@ -1,5 +1,4 @@
-#!/usr/bin/env python
-#
+
 # Licensed under the BSD license.  See full license in LICENSE file.
 # http://www.lightshowpi.com/
 #
@@ -439,7 +438,7 @@ if __name__ == "__main__":
     parser.add_argument('--log', default='INFO',
                         help='Set the logging level. levels:INFO, DEBUG,'
                              'WARNING, ERROR, CRITICAL')
-    parser.add_argument("--num_songs", default=3,
+    parser.add_argument("--num_songs", default=4,
                         help="Number of songs to play from the playlist")
 
     filegroup = parser.add_mutually_exclusive_group()
