@@ -63,7 +63,6 @@ import contextlib
 import csv
 import json
 import logging
-import multiprocessing.pool
 import os
 import random
 import subprocess
@@ -236,6 +235,7 @@ def audio_in():
 
 def load_cached_fft(fft_calc, cache_filename):
      # Read in cached fft
+    mean, std, cache_matrix = None, None, None
     try:
         # load cache from file using numpy loadtxt
         cache_matrix = np.loadtxt(cache_filename)
@@ -259,15 +259,15 @@ def load_cached_fft(fft_calc, cache_filename):
 
         logging.debug("std: " + str(std) + ", mean: " + str(mean))
     except IOError:
-        cache_found = fft_calc.compare_config(cache_filename)
+        cache_found = False
         logging.warn("Cached sync data song_filename not found: '"
                      + cache_filename
                      + "'.  One will be generated.")
 
-    return mean, std, cache_matrix
+    return cache_found, mean, std, cache_matrix
 
 # TODO(mdietz): cache dir should be configurable
-def cache_song(song_filename, chunk_size):
+def get_song_cache(song_filename, chunk_size):
     music_file = audio_decoder.open(song_filename)
     sample_rate = music_file.getframerate()
     num_channels = music_file.getnchannels()
@@ -287,11 +287,16 @@ def cache_song(song_filename, chunk_size):
     cache_matrix = np.empty(shape=[0, hc.GPIOLEN])
     cache_filename = os.path.dirname(song_filename) + "/." + os.path.basename(
         song_filename) + ".sync"
-    cache_found = fft_calc.compare_config(cache_filename)
+    config_found = fft_calc.compare_config(cache_filename)
 
-    if cache_found:
-        mean, std, cache_matrix = load_cached_fft(fft_calc, cache_filename)
-    else:
+    cache_found = False
+    if config_found:
+        cache_found, mean, std, cache_matrix = load_cached_fft(fft_calc, cache_filename)
+
+    if not cache_found:
+        # Reset the cache matrix
+        cache_matrix = np.empty(shape=[0, hc.GPIOLEN])
+
         # The values 12 and 1.5 are good estimates for first time playing back
         # (i.e. before we have the actual mean and standard deviations
         # calculated for each channel).
@@ -350,17 +355,9 @@ def play_song(num_songs):
 
     current_playlist = playlist.Playlist(args.playlist, num_songs)
 
-    # Initialize Lights
-    hc.initialize()
-
-    # Fork and warm the cache. Technically race prone but meh
-    pool = multiprocessing.pool.Pool(processes=1)
-
     for (song_title,
          song_filename,
          chunk_size) in current_playlist.get_song():
-
-        cache_proc = pool.apply_async(cache_song, [song_filename, chunk_size])
 
         # Handle the pre/post show
         if not play_now:
@@ -375,9 +372,7 @@ def play_song(num_songs):
             cm.update_state('play_now', "0")
             play_now = 0
 
-        # Wait for the cache
-        cache_proc.wait()
-        mean, std, cache_matrix = cache_proc.get()
+        mean, std, cache_matrix = get_song_cache(song_filename, chunk_size)
 
         # NOTE(mdietz): Adapt this to a standard radio, not an SDR. The SDR
         #               has a clear extra amount of delay
@@ -464,9 +459,16 @@ if __name__ == "__main__":
     level = levels.get(parser.parse_args().log.upper())
     logging.getLogger().setLevel(level)
 
-    if cm.lightshow()['mode'] == 'audio-in':
-        audio_in()
-    else:
-        play_song(args.num_songs)
-        CLEAN_EXIT = True
+    try:
+        if cm.lightshow()['mode'] == 'audio-in':
+            audio_in()
+        else:
+            # Initialize Lights
+            hc.initialize()
+            play_song(args.num_songs)
+            CLEAN_EXIT = True
+    except:
+        log = logging.getLogger()
+        log.exception("Something blew up")
+    finally:
         hc.turn_on_all_lights()
