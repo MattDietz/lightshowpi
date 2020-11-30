@@ -33,7 +33,7 @@ pyserial==2.6
 python-apt==0.8.8.2
 python-debian==0.1.21
 PyYAML==3.11
-requests==2.4.3
+requests==2.20.0
 RPi.GPIO==0.5.11
 simplegeneric==0.8.1
 six==1.10.0
