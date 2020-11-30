@@ -2,7 +2,7 @@ BeautifulSoup==3.2.1
 cffi==0.8.6
 chardet==2.0.1
 colorama==0.3.2
-cryptography==0.6.1
+cryptography==3.2
 decorator==4.0.4
 devscripts===2.12.6-deb7u2
 funcsigs==0.4
