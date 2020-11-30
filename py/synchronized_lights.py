@@ -117,6 +117,7 @@ CHUNK_SIZE = _CONFIG.getint("audio_processing", "chunk_size")
 
 def end_early():
     """atexit function"""
+    logging.critical("Atexit triggered with CLEAN_EXIT %s", CLEAN_EXIT)
     if not CLEAN_EXIT:
         hc.clean_up()
 
@@ -355,6 +356,9 @@ def play_song(num_songs):
 
     current_playlist = playlist.Playlist(args.playlist, num_songs)
 
+    # Initialize Lights
+    hc.initialize()
+
     for (song_title,
          song_filename,
          chunk_size) in current_playlist.get_song():
@@ -463,12 +467,9 @@ if __name__ == "__main__":
         if cm.lightshow()['mode'] == 'audio-in':
             audio_in()
         else:
-            # Initialize Lights
-            hc.initialize()
             play_song(args.num_songs)
             CLEAN_EXIT = True
-    except:
-        log = logging.getLogger()
-        log.exception("Something blew up")
+    except Exception:
+        logging.exception("Something blew up")
     finally:
         hc.turn_on_all_lights()
