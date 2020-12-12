@@ -28,7 +28,7 @@ pyalsaaudio==0.5
 pyasn1==0.1.7
 pycparser==2.10
 pygooglevoice==0.5
-pyOpenSSL==0.14
+pyOpenSSL==17.5.0
 pyserial==2.6
 python-apt==0.8.8.2
 python-debian==0.1.21
