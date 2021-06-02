@@ -38,7 +38,7 @@ RPi.GPIO==0.5.11
 simplegeneric==0.8.1
 six==1.10.0
 traitlets==4.1.0b1
-urllib3==1.9.1
+urllib3==1.26.5
 web.py==0.37
 wiringpi2==1.1.1
 # Remove this
