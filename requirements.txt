@@ -7,7 +7,7 @@ decorator==4.0.4
 devscripts===2.12.6-deb7u2
 funcsigs==0.4
 glob2==0.4.1
-html5lib==0.999
+html5lib==0.999999999
 ipython-genutils==0.1.0
 Magic-file-extensions==0.2
 mcpi==0.1.1
